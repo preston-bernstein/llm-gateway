@@ -1,0 +1,34 @@
+[Unit]
+Description=LiteLLM AI Gateway
+Documentation=https://github.com/preston-bernstein/llm-gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=litellm
+Group=litellm
+
+# API keys — never in config.yaml or this unit file
+EnvironmentFile=/etc/litellm/litellm.env
+
+ExecStart=/opt/litellm/venv/bin/litellm \
+    --config /etc/litellm/config.yaml \
+    --port 4000 \
+    --host 0.0.0.0
+
+Restart=always
+RestartSec=5
+
+# /var/lib/litellm is created by StateDirectory and owned by the service user.
+# ProtectSystem=strict requires StateDirectory for any writable path under /var.
+StateDirectory=litellm
+WorkingDirectory=/var/lib/litellm
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

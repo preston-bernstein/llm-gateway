@@ -1,0 +1,66 @@
+# LiteLLM proxy config — model routing only, no secrets here.
+# API keys live in /etc/litellm/litellm.env (EnvironmentFile, not tracked).
+#
+# Add models here as you onboard providers. Services always call this proxy
+# at http://<host>:4000 using standard OpenAI-compatible format; the proxy
+# handles auth translation and provider-specific wire formats.
+
+model_list:
+  # ── Gemini ────────────────────────────────────────────────────────────────
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GEMINI_API_KEY
+
+  # ── Anthropic ─────────────────────────────────────────────────────────────
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── Local Ollama (via resource broker) ────────────────────────────────────
+  # Interactive port — journal generation, chat, long-running prompts.
+  # Add local models here as needed; keep_alive is set per-call by clients.
+  - model_name: ollama/interactive/qwen2.5
+    litellm_params:
+      model: ollama/qwen2.5
+      api_base: http://127.0.0.1:11435
+
+  # Batch port — embeddings, enrichment, vision classification.
+  - model_name: ollama/batch/qwen2.5:3b
+    litellm_params:
+      model: ollama/qwen2.5:3b
+      api_base: http://127.0.0.1:11436
+
+  - model_name: ollama/batch/qwen2.5:7b
+    litellm_params:
+      model: ollama/qwen2.5:7b
+      api_base: http://127.0.0.1:11436
+
+  - model_name: ollama/batch/qwen3-vl:30b
+    litellm_params:
+      model: ollama/qwen3-vl:30b
+      api_base: http://127.0.0.1:11436
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: "sqlite:////var/lib/litellm/litellm.db"
+  # Disable the default OTEL/analytics pings
+  disable_master_key_return: true
+
+litellm_settings:
+  request_timeout: 120
+  # Drop unknown params rather than error — keeps Ollama clients compatible
+  drop_params: true
+  # Redact keys from logs
+  redact_user_api_key_info: true
