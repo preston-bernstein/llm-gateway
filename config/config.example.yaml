@@ -12,6 +12,19 @@ model_list:
       model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # frontier tier — maximum accuracy
+  - model_name: claude-opus-4-8
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # RunPod serverless (big open-weights, mid tier). Fill endpoint id + model.
+  - model_name: runpod/qwen2.5-72b
+    litellm_params:
+      model: openai/qwen2.5-72b-instruct
+      api_base: https://api.runpod.ai/v2/RUNPOD_ENDPOINT_ID/openai/v1
+      api_key: os.environ/RUNPOD_API_KEY
+
   # Local Ollama — adjust api_base to match your broker port
   - model_name: ollama/qwen2.5
     litellm_params:

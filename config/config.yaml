@@ -28,6 +28,22 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # frontier — maximum accuracy for hard reasoning (strategy design, judgment)
+  - model_name: claude-opus-4-8
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ── RunPod (serverless vLLM, OpenAI-compatible) ───────────────────────────
+  # Big open-weights (Llama/Qwen/DeepSeek) on-demand — a mid tier between the
+  # local broker and the frontier APIs. Replace RUNPOD_ENDPOINT_ID with your
+  # serverless endpoint id and the served model name.
+  - model_name: runpod/qwen2.5-72b
+    litellm_params:
+      model: openai/qwen2.5-72b-instruct
+      api_base: https://api.runpod.ai/v2/RUNPOD_ENDPOINT_ID/openai/v1
+      api_key: os.environ/RUNPOD_API_KEY
+
   # ── Local Ollama (via resource broker) ────────────────────────────────────
   # Interactive port — journal generation, chat, long-running prompts.
   # Add local models here as needed; keep_alive is set per-call by clients.
