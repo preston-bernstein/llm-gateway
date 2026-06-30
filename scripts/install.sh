@@ -26,7 +26,8 @@ fi
 # ── Directories ───────────────────────────────────────────────────────────────
 mkdir -p /opt/litellm "$CONFIG_DIR" "$DATA_DIR"
 chown "$SERVICE_USER:$SERVICE_USER" /opt/litellm "$DATA_DIR"
-chmod 750 "$CONFIG_DIR"   # root:root, readable only by root — keys live here
+chown root:"$SERVICE_USER" "$CONFIG_DIR"
+chmod 750 "$CONFIG_DIR"   # litellm group can traverse; root:root locked
 
 # ── Python venv + LiteLLM ─────────────────────────────────────────────────────
 info "creating venv at $VENV ..."
@@ -42,6 +43,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
     cp "$REPO_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml"
+    chown root:"$SERVICE_USER" "$CONFIG_DIR/config.yaml"
+    chmod 640 "$CONFIG_DIR/config.yaml"
     info "copied config.yaml to $CONFIG_DIR"
 else
     info "config.yaml already exists — skipping (diff manually if needed)"

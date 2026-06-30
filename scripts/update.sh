@@ -14,6 +14,8 @@ sudo -u litellm "$VENV/bin/pip" install --quiet --upgrade 'litellm[proxy]'
 
 echo "[update] syncing config..."
 cp "$REPO_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml"
+chown root:litellm "$CONFIG_DIR/config.yaml"
+chmod 640 "$CONFIG_DIR/config.yaml"
 cp "$REPO_DIR/systemd/litellm.service" /etc/systemd/system/litellm.service
 systemctl daemon-reload
 

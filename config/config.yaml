@@ -54,8 +54,6 @@ model_list:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  database_url: "sqlite:////var/lib/litellm/litellm.db"
-  # Disable the default OTEL/analytics pings
   disable_master_key_return: true
 
 litellm_settings:
