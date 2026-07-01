@@ -34,15 +34,15 @@ model_list:
       model: anthropic/claude-opus-4-8
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # ── RunPod (serverless vLLM, OpenAI-compatible) ───────────────────────────
+  # ── RunPod (serverless vLLM) — NOT ACTIVE: template only ──────────────────
+  # Uncomment + fill once you deploy a serverless endpoint AND set RUNPOD_API_KEY.
   # Big open-weights (Llama/Qwen/DeepSeek) on-demand — a mid tier between the
-  # local broker and the frontier APIs. Replace RUNPOD_ENDPOINT_ID with your
-  # serverless endpoint id and the served model name.
-  - model_name: runpod/qwen2.5-72b
-    litellm_params:
-      model: openai/qwen2.5-72b-instruct
-      api_base: https://api.runpod.ai/v2/RUNPOD_ENDPOINT_ID/openai/v1
-      api_key: os.environ/RUNPOD_API_KEY
+  # local broker and the frontier APIs.
+  # - model_name: runpod/qwen2.5-72b
+  #   litellm_params:
+  #     model: openai/qwen2.5-72b-instruct
+  #     api_base: https://api.runpod.ai/v2/RUNPOD_ENDPOINT_ID/openai/v1
+  #     api_key: os.environ/RUNPOD_API_KEY
 
   # ── Local Ollama (via resource broker) ────────────────────────────────────
   # Interactive port — journal generation, chat, long-running prompts.
