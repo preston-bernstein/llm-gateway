@@ -1,6 +1,10 @@
 # LiteLLM proxy config — model routing only, no secrets here.
 # API keys live in /etc/litellm/litellm.env (EnvironmentFile, not tracked).
 #
+# Claude models route to the local claude-cli-server (localhost:4002) which
+# wraps `claude -p --dangerously-skip-permissions`. This uses Preston's Claude
+# subscription instead of the Anthropic API key.
+#
 # Add models here as you onboard providers. Services always call this proxy
 # at http://<host>:4000 using standard OpenAI-compatible format; the proxy
 # handles auth translation and provider-specific wire formats.
@@ -17,22 +21,75 @@ model_list:
       model: gemini/gemini-2.5-pro
       api_key: os.environ/GEMINI_API_KEY
 
-  # ── Anthropic ─────────────────────────────────────────────────────────────
+  - model_name: gemini-embed
+    litellm_params:
+      model: gemini/gemini-embedding-001
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: runpod-qwen32b
+    litellm_params:
+      model: openai/Qwen/Qwen2.5-32B-Instruct-AWQ
+      api_base: https://api.runpod.ai/v2/ie51lx9atasbi0/openai/v1
+      api_key: os.environ/RUNPOD_API_KEY
+
+  # 72B extraction backend for algo-corpus (2 pods, round-robin — see below).
+  # RunPod's CF proxy hard-kills any request at ~100s (524) regardless of which
+  # pod serves it, so BOTH deployments tend to trip unhealthy together under
+  # load ("Model Group=qwen72b" 404 — no healthy deployment — seen live
+  # 2026-07-21 through 2026-07-25). Mitigated three ways:
+  #   1. timeout 90s (< CF's ~100s kill) so litellm's OWN clean timeout fires
+  #      first — a normal retriable error instead of waiting on a raw 524.
+  #   2. router_settings below: a long-running 72B extraction call timing out
+  #      under queue depth is EXPECTED, not real unhealth — allowed_fails is
+  #      raised so a normal burst doesn't blackball the deployment, and
+  #      cooldown_time is short so if it does trip, it recovers fast instead
+  #      of taking the whole group down for the (60s) default.
+  #   3. litellm_settings.fallbacks below: if the whole qwen72b group is ever
+  #      cooling down anyway, fall over to gemini-2.5-flash (the original,
+  #      proven-working extraction backend before this pod existed) rather
+  #      than let the doc sit until LightRAG's 3600s per-worker timeout.
+  - model_name: qwen72b
+    litellm_params:
+      model: openai/qwen72b
+      api_base: https://h86t44jv0euiix-8000.proxy.runpod.net/v1
+      api_key: os.environ/RUNPOD_API_KEY
+      num_retries: 6
+      timeout: 90
+  # pod #2 (same model_name = litellm round-robin load balancing)
+  - model_name: qwen72b
+    litellm_params:
+      model: openai/qwen72b
+      api_base: https://euou6yi1aqwlig-8000.proxy.runpod.net/v1
+      api_key: os.environ/RUNPOD_API_KEY
+      num_retries: 6
+      timeout: 90
+  # ── Anthropic (via Claude CLI subscription — no API key billing) ──────────
+  # All claude-* calls go to claude-cli-server on localhost:4002, which wraps
+  # `claude -p --dangerously-skip-permissions` using Preston's Claude Pro session.
   - model_name: claude-sonnet-4-6
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: openai/claude-sonnet-4-6
+      api_base: http://localhost:4002/v1
+      api_key: "none"
 
   - model_name: claude-haiku-4-5
     litellm_params:
-      model: anthropic/claude-haiku-4-5-20251001
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: openai/claude-haiku-4-5
+      api_base: http://localhost:4002/v1
+      api_key: "none"
 
   # frontier — maximum accuracy for hard reasoning (strategy design, judgment)
   - model_name: claude-opus-4-8
     litellm_params:
-      model: anthropic/claude-opus-4-8
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: openai/claude-opus-4-8
+      api_base: http://localhost:4002/v1
+      api_key: "none"
+
+  - model_name: claude-fable-5
+    litellm_params:
+      model: openai/claude-fable-5
+      api_base: http://localhost:4002/v1
+      api_key: "none"
 
   # ── RunPod (serverless vLLM) — NOT ACTIVE: template only ──────────────────
   # Uncomment + fill once you deploy a serverless endpoint AND set RUNPOD_API_KEY.
@@ -68,13 +125,40 @@ model_list:
       model: ollama/qwen3-vl:30b
       api_base: http://127.0.0.1:11436
 
+  - model_name: ollama/batch/bge-m3
+    litellm_params:
+      model: ollama/bge-m3
+      api_base: http://127.0.0.1:11436
+    model_info:
+      mode: embedding
+  - model_name: ollama/cpu/bge-m3
+    litellm_params:
+      model: ollama/bge-m3-cpu
+      api_base: http://127.0.0.1:11434
+    model_info:
+      mode: embedding
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   disable_master_key_return: true
 
+router_settings:
+  # RunPod CF-proxy 524s on the 72B extraction route are expected traffic, not
+  # real deployment unhealth (see qwen72b comment above) — don't cooldown on a
+  # normal burst, and recover fast on the rare occasions it does trip.
+  allowed_fails: 15
+  cooldown_time: 20
+
 litellm_settings:
-  request_timeout: 120
+  request_timeout: 300
+  num_retries: 3
   # Drop unknown params rather than error — keeps Ollama clients compatible
   drop_params: true
   # Redact keys from logs
   redact_user_api_key_info: true
+  # qwen72b -> gemini-2.5-flash: during a qwen72b group cooldown, keep algo-corpus
+  # extraction moving on the original proven backend instead of a doc stalling
+  # until LightRAG's 3600s per-worker timeout. Lower detail than the 72B model,
+  # but non-blocking beats stuck.
+  fallbacks:
+    - qwen72b: ["gemini-2.5-flash"]
