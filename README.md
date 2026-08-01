@@ -16,7 +16,7 @@ A self-hosted [LiteLLM](https://github.com/BerriAI/litellm) proxy that runs as a
 **Why a proxy instead of direct API calls per service?**
 
 - **Key management**: API keys live in one env file (`/etc/litellm/litellm.env`). Services carry no credentials — they call localhost with an internal master key.
-- **Visibility**: Every call (local and cloud) is logged to a SQLite DB with model, tokens, latency, and cost. One `SELECT` to see what ran and what it cost.
+- **Visibility**: every request, its outcome, latency, tokens, and spend are exported as Prometheus metrics (see Observability below) — one shared query plane instead of grepping a proxy's journal by hand.
 - **Provider abstraction**: Swap Gemini Flash for something better without touching any service. Change the model alias in `config.yaml`, restart, done.
 - **FrugalGPT cascade compatibility**: Services implement L1 → L2 → L3 escalation logic; the gateway handles routing each tier to the right backend, including auth format differences (Anthropic native vs OpenAI-compat).
 
@@ -103,17 +103,52 @@ Model names are whatever you define in `config.yaml`. The gateway handles transl
 - Service runs as `litellm` (nologin system user)
 - `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`
 - `/etc/litellm/` is `chmod 750` root:root — service reads env via `EnvironmentFile`, not filesystem access
-- Keys never appear in `config.yaml`, the service unit, or logs (`redact_user_api_key_info: true`)
+- Keys never appear in `config.yaml`, the service unit, or logs (`redact_user_api_key_info: true`); prompt/response bodies never reach logs either (`turn_off_message_logging: true`)
 - Internal master key gates access from services on the LAN; rotate by updating `litellm.env` and restarting
 
-## Spend tracking
+## Observability
 
-LiteLLM logs every request to `/var/lib/litellm/litellm.db`. To see spend by model:
+This is a long-lived daemon already bound to `:4000`, so metrics are a native
+scraped `/metrics` endpoint rather than the node-exporter textfile collector
+(that lane is for one-shot systemd units with nothing listening at scrape
+time — see home-infra `CONVENTIONS.md` §18). Enabled via
+`litellm_settings.callbacks: [prometheus]` in `config.yaml`, backed by the
+`prometheus_client` pip package (installed by `scripts/install.sh` /
+`scripts/update.sh`).
 
 ```bash
-sqlite3 /var/lib/litellm/litellm.db \
-  "SELECT model, COUNT(*) calls, SUM(spend) total_usd FROM litellm_spendlogs GROUP BY model ORDER BY total_usd DESC;"
+curl -sH "Authorization: Bearer $LITELLM_MASTER_KEY" http://10.0.0.243:4000/metrics
 ```
+
+`/metrics` sits behind the same master-key auth as every other route
+(`require_auth_for_metrics_endpoint` defaults to `true` as of litellm 1.85+)
+— a Prometheus scrape job needs that header, same as any other caller. The
+scrape job itself lives in `home-infra`, not this repo.
+
+Key series (see `config/config.yaml` for the full mapping):
+
+| Series | Answers |
+|---|---|
+| `litellm_proxy_total_requests_metric{requested_model, status_code}` | requests by model and outcome |
+| `litellm_deployment_successful_fallbacks{requested_model, fallback_model}` / `litellm_deployment_failed_fallbacks` | which requests got a *different* model than they asked for — the fallback/quality-degradation signal an HTTP 200 otherwise hides (e.g. `qwen72b` → `gemini-2.5-flash`, see `config.yaml`'s `fallbacks:` block) |
+| `litellm_deployment_cooled_down` | a deployment (e.g. one RunPod pod) going into cooldown |
+| `litellm_request_total_latency_metric`, `litellm_llm_api_latency_metric` | latency, end-to-end vs upstream-only |
+| `litellm_input_tokens_metric`, `litellm_output_tokens_metric`, `litellm_spend_metric` | token and cost accounting per model, where the upstream response reports it |
+
+**Logs**: `JSON_LOGS=True` + `LITELLM_LOG=INFO` (set in `systemd/litellm.service`)
+push LiteLLM's own log output to stdout/journald as JSON instead of plain
+text. This has open upstream bugs on some versions
+(BerriAI/litellm#19036, #19410) — verify after any deploy with
+`journalctl -u litellm -n 20 -o cat` and expect JSON objects, not plain
+lines; if it's still plain text, that's a known, not silently-assumed, gap.
+`turn_off_message_logging: true` (`config.yaml`) keeps full prompt/response
+bodies out of logs regardless — this proxy carries every prompt in the lab,
+so that stays on unconditionally.
+
+There is no spend database — `database_url` was deliberately removed after
+Incident 1 (see `.claude/skills/llm-gateway-failure-archaeology`) and
+`/var/lib/litellm/litellm.db` does not exist. `litellm_spend_metric` above is
+the real, current way to see cost by model.
 
 ## Port
 

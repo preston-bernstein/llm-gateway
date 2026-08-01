@@ -156,9 +156,55 @@ litellm_settings:
   drop_params: true
   # Redact keys from logs
   redact_user_api_key_info: true
+  # Never let prompt/response bodies reach stdout/journald — this proxy carries
+  # every prompt in the lab (LightRAG/algo-corpus doc bodies included).
+  # redact_user_api_key_info (above) only redacts proxy-side KEY info; this is
+  # the one that keeps message content out of logs. See home-infra
+  # CONVENTIONS.md §18 "Redaction" — bodies are never logged, full stop.
+  turn_off_message_logging: true
   # qwen72b -> gemini-2.5-flash: during a qwen72b group cooldown, keep algo-corpus
   # extraction moving on the original proven backend instead of a doc stalling
   # until LightRAG's 3600s per-worker timeout. Lower detail than the 72B model,
   # but non-blocking beats stuck.
   fallbacks:
     - qwen72b: ["gemini-2.5-flash"]
+  # ── Observability (home-infra CONVENTIONS.md §18 / 2026-08-01 fleet audit) ──
+  # LiteLLM's built-in Prometheus integration. Doc-verified against the
+  # installed version (1.93.0, desktop) 2026-08-01 — this is a long-lived
+  # daemon already bound to :4000, so it gets a native scraped /metrics
+  # endpoint (per CONVENTIONS §18's deployment-shape split), NOT the
+  # node-exporter textfile collector — that lane is for one-shot units with
+  # nothing listening at scrape time, which this isn't.
+  # Requires the `prometheus_client` pip package (scripts/install.sh /
+  # scripts/update.sh install it alongside litellm[proxy]).
+  #
+  # Metric -> fleet-contract requirement mapping (verified names, 2026-08-01):
+  #   requests by model + outcome  -> litellm_proxy_total_requests_metric
+  #                                    (labels: requested_model, status_code)
+  #   fallback/degradation events  -> litellm_deployment_successful_fallbacks /
+  #                                    litellm_deployment_failed_fallbacks
+  #                                    (labels: requested_model, fallback_model)
+  #                                    — THIS is the qwen72b->gemini-2.5-flash
+  #                                    degradation signal from commit c6c31a4,
+  #                                    finally visible as a counter instead of
+  #                                    an HTTP 200 nobody inspects.
+  #   deployment cooldowns         -> litellm_deployment_cooled_down
+  #   latency                      -> litellm_request_total_latency_metric,
+  #                                    litellm_llm_api_latency_metric
+  #   tokens                       -> litellm_input_tokens_metric,
+  #                                    litellm_output_tokens_metric
+  #   spend/cost per model         -> litellm_spend_metric
+  # /metrics inherits the same master-key auth as every other route
+  # (require_auth_for_metrics_endpoint defaults to true as of litellm 1.85+) —
+  # a Prometheus scrape job needs an Authorization: Bearer <master key> header,
+  # same as any other caller. That scrape job lives in home-infra, not here.
+  #
+  # No <svc>_last_run_timestamp_seconds / _work_quantity / _work_available
+  # gauges are hand-rolled here: those exist in the contract for batch/cron
+  # jobs where "did it run, did it do anything" isn't otherwise observable.
+  # For a continuously-serving proxy, Prometheus's own up{job="llm-gateway"}
+  # (home-infra scrape config) plus the request-rate metrics above already
+  # answer "is it alive" and "is it doing work" with more precision than a
+  # synthetic gauge would.
+  callbacks:
+    - prometheus

@@ -12,6 +12,22 @@ Group=litellm
 # API keys — never in config.yaml or this unit file
 EnvironmentFile=/etc/litellm/litellm.env
 
+# Structured logging (home-infra CONVENTIONS.md §18). JSON_LOGS as an
+# environment variable, not litellm_settings.json_logs in config.yaml — the
+# config-file key has an open upstream bug when the CLI's own --config flag
+# path is involved (BerriAI/litellm#19036, #19410); the env var is the
+# documented-reliable path for a `litellm --config ...` CLI invocation like
+# this unit's. NOT a secret, so it lives here rather than litellm.env.
+# Verify after any deploy: `journalctl -u litellm -n 20 -o cat` should show
+# JSON objects, not plain text — if it doesn't, the upstream bug applies to
+# the installed version and this is a documented, not silently-assumed, gap.
+Environment=JSON_LOGS=True
+Environment=LITELLM_LOG=INFO
+
+# Gives Loki-bound journal lines a stable service label independent of the
+# unit filename (home-infra CONVENTIONS.md §18, Lane B onboarding).
+SyslogIdentifier=llm-gateway
+
 ExecStart=/opt/litellm/venv/bin/litellm \
     --config /etc/litellm/config.yaml \
     --port 4000 \
