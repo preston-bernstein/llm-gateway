@@ -108,7 +108,7 @@ Model names are whatever you define in `config.yaml`. The gateway translates eac
 
 - The service runs as `litellm`, a nologin system user — it can't log in interactively, it only runs the proxy process.
 - systemd options `ProtectSystem=strict`, `ProtectHome=true`, and `PrivateTmp=true` lock the service's filesystem access down to what it needs.
-- `/etc/litellm/` is `chmod 750`, owned by `root:root`. The service reads secrets through the systemd `EnvironmentFile` directive, not by opening files itself.
+- `/etc/litellm/` is `chmod 750`, owned by `root:litellm` so the service group can read its own config. The service reads secrets through the systemd `EnvironmentFile` directive, not by opening files itself.
 - Keys never appear in `config.yaml`, the systemd unit, or logs: `redact_user_api_key_info: true` strips them from logs, and `turn_off_message_logging: true` keeps prompt and response bodies out of logs too.
 - An internal master key gates every request from services on the LAN. To rotate it, update `litellm.env` and restart the service.
 
