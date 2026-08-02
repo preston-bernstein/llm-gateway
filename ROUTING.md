@@ -25,4 +25,4 @@ The gateway exports every call (tier, tokens, latency, cost) as Prometheus metri
 
 ## RunPod
 
-RunPod is a serverless GPU hosting service. The `runpod/*` entries point at a RunPod-hosted vLLM endpoint (vLLM is an OpenAI-compatible model server) — a middle option, in cost and capability, between the local broker and the cloud frontier APIs, for running large open-weight models on demand. To use it, set the endpoint ID in `config.yaml` and `RUNPOD_API_KEY` in the env file.
+RunPod is a serverless GPU hosting service. The `runpod/*` entries point at a RunPod-hosted vLLM endpoint — a middle option, in cost and capability, between the local broker and the cloud frontier APIs, for running large open-weight models on demand. To use it, set the endpoint ID in `config.yaml` and `RUNPOD_API_KEY` in the env file.

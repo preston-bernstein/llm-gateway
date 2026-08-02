@@ -1,8 +1,8 @@
 # llm-gateway
 
-llm-gateway is a self-hosted proxy — a server that sits between your other services and several AI providers, forwarding each request to the right one. It's built on [LiteLLM](https://github.com/BerriAI/litellm) and runs as a hardened systemd service (systemd is Linux's built-in service manager; "hardened" means the service runs with strict file and process permissions — see Security below) on a Linux machine.
+llm-gateway is a self-hosted proxy built on [LiteLLM](https://github.com/BerriAI/litellm), running as a hardened systemd service on a Linux machine.
 
-It gives your services one OpenAI-compatible endpoint (a single URL that accepts requests in the same format as OpenAI's API) in front of the Gemini API, the Anthropic API, and local Ollama models (Ollama runs open-weight language models on your own hardware). That gets you:
+It gives your services one OpenAI-compatible endpoint in front of the Gemini API, the Anthropic API, and local Ollama models. That gets you:
 
 - **One endpoint** every service calls, instead of each service wiring up its own provider.
 - **One place for API keys** — services never hold a provider credential themselves.
@@ -22,7 +22,7 @@ It gives your services one OpenAI-compatible endpoint (a single URL that accepts
 **Why use a proxy instead of calling each provider's API directly?**
 
 - **Key management**: API keys live in one env file, `/etc/litellm/litellm.env`. Services carry no credentials of their own — they call `localhost` with an internal master key instead.
-- **Visibility**: every request — its outcome, latency, tokens, and spend — is exported as Prometheus metrics (Prometheus is the metrics-collection system this stack uses; see Observability below). That gives you one shared place to query, instead of grepping through a proxy's log by hand.
+- **Visibility**: every request — its outcome, latency, tokens, and spend — is exported as Prometheus metrics (see Observability below). That gives you one shared place to query, instead of grepping through a proxy's log by hand.
 - **Provider abstraction**: to swap Gemini Flash for a better model, change the model alias in `config.yaml` and restart — no service code changes needed.
 - **FrugalGPT cascade compatibility**: FrugalGPT is a cost-saving strategy — try a cheap model first, and escalate to a pricier one only if it fails a quality check. Services implement that escalation logic tier by tier; the gateway routes each tier's call to the right backend, including differences in how providers expect requests authenticated (Anthropic's native format vs. OpenAI-compatible).
 
