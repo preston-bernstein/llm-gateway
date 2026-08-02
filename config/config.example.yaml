@@ -38,3 +38,13 @@ general_settings:
 litellm_settings:
   request_timeout: 120
   drop_params: true
+  redact_user_api_key_info: true
+  # Never let prompt/response bodies reach stdout/journald — see config.yaml
+  # for the full rationale (home-infra CONVENTIONS.md §18 "Redaction").
+  turn_off_message_logging: true
+  # Native Prometheus /metrics endpoint — requires the `prometheus_client`
+  # pip package (installed by scripts/install.sh). See config.yaml for the
+  # full metric-to-requirement mapping; this makes a fresh install observable
+  # by default instead of bolted on later.
+  callbacks:
+    - prometheus

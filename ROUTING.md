@@ -20,8 +20,11 @@ tier to try, when to escalate). The shared tier contract:
 
 The cascade's quality gate is a verifier (valid JSON of the right shape, a
 self-consistency check, etc.). A cheap model only "wins" if it passes; otherwise
-the request escalates. Every call (tier, tokens, latency, cost) is logged by the
-LiteLLM proxy — one `SELECT` to see what each task actually cost.
+the request escalates. Every call (tier, tokens, latency, cost) is exported by
+the gateway as Prometheus metrics — see README.md's Observability section for
+the exact series, including `litellm_deployment_successful_fallbacks`, which
+is how a cascade landing on a *different* model than it asked for (a silent
+quality downgrade, not just a cost line) becomes visible.
 
 ## Reference implementation
 
