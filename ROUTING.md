@@ -1,41 +1,28 @@
 # Model routing — the right model for the job (FrugalGPT)
 
-The gateway serves a catalog of models; **services own the cascade policy** (which
-tier to try, when to escalate). The shared tier contract:
+FrugalGPT is a cost-saving routing strategy from a research paper: try a cheap model first, and escalate to a pricier one only if the cheap one's answer fails a quality check. This repo's gateway serves a catalog of models; **services own the cascade policy** — which tier to try first, and when to escalate. The shared tier contract every service should follow:
 
 | Tier | Gateway model_name | Use |
 |---|---|---|
-| **LOCAL** | `ollama/interactive/qwen2.5`, `ollama/batch/*` | free, private, bulk/simple (classify, extract, embeddings) |
-| **FAST** | `gemini-2.5-flash` | cheap, fast cloud — first cloud escalation |
-| **MID** | `claude-sonnet-4-6`, `runpod/qwen2.5-72b` | strong reasoning at mid cost |
-| **FRONTIER** | `claude-opus-4-8`, `gemini-2.5-pro` | maximum accuracy — hard reasoning / judgment |
+| **LOCAL** | `ollama/interactive/qwen2.5`, `ollama/batch/*` | Free, private, runs on our own hardware. For bulk or simple work: classification, extraction, embeddings. |
+| **FAST** | `gemini-2.5-flash` | Cheap, fast cloud model — the first cloud tier to try after LOCAL. |
+| **MID** | `claude-sonnet-4-6`, `runpod/qwen2.5-72b` | Strong reasoning at moderate cost. |
+| **FRONTIER** | `claude-opus-4-8`, `gemini-2.5-pro` | Highest accuracy — for hard reasoning or judgment calls. |
 
-## FrugalGPT principle (accuracy-first)
+## FrugalGPT principle: accuracy first, cost second
 
-- **Bulk/simple work** → start LOCAL, escalate only if the cheap model fails a
-  quality gate (e.g. invalid JSON). Most calls never leave the free tier.
-- **Accuracy-critical work** → skip the cascade, go straight to FRONTIER. Don't
-  pay in errors to save pennies where correctness matters.
-- **Middling work** → cascade MID → FRONTIER.
+- **Bulk or simple work**: start at LOCAL, and escalate only if the cheap model fails a quality gate (for example, it returns invalid JSON). Most calls never leave the free tier.
+- **Accuracy-critical work**: skip the cascade and go straight to FRONTIER. Don't risk an error to save a fraction of a cent where correctness matters.
+- **Middling work**: cascade from MID to FRONTIER.
 
-The cascade's quality gate is a verifier (valid JSON of the right shape, a
-self-consistency check, etc.). A cheap model only "wins" if it passes; otherwise
-the request escalates. Every call (tier, tokens, latency, cost) is exported by
-the gateway as Prometheus metrics — see README.md's Observability section for
-the exact series, including `litellm_deployment_successful_fallbacks`, which
-is how a cascade landing on a *different* model than it asked for (a silent
-quality downgrade, not just a cost line) becomes visible.
+The quality gate that decides whether a cheap model's answer is good enough is a verifier — for example, checking that JSON output is valid and has the right shape, or running a self-consistency check. A cheap model's answer only counts as a "win" if it passes the gate; otherwise the request escalates to the next tier.
+
+The gateway exports every call (tier, tokens, latency, cost) as Prometheus metrics — see the Observability section of README.md for the exact metric names, including `litellm_deployment_successful_fallbacks`. That metric is what makes it visible when a cascade lands on a *different* model than it asked for: a silent quality downgrade, not just a cost line, that would otherwise hide behind a normal HTTP 200 response.
 
 ## Reference implementation
 
-`algo-factory`'s `ModelRouter` (`src/algo_factory/agents/router.py`) implements
-this: per-task `RoutePolicy` (mode `cascade`|`best` + tier chain), JSON-gated
-escalation, all calls through this gateway. Other services should follow the same
-tier names so policies stay consistent across the stack.
+`algo-factory` (a sibling repo) implements this pattern in its `ModelRouter` (`src/algo_factory/agents/router.py`): each task gets a `RoutePolicy` (mode `cascade` or `best`, plus a tier chain), escalation is gated on JSON validity, and every call goes through this gateway. Other services should reuse the same tier names so routing policy stays consistent across the whole stack.
 
 ## RunPod
 
-`runpod/*` entries point at a serverless vLLM endpoint (OpenAI-compatible) — big
-open-weights on demand, a cost/capability point between the local broker and the
-frontier APIs. Set the endpoint id in `config.yaml` and `RUNPOD_API_KEY` in the
-env file.
+RunPod is a serverless GPU hosting service. The `runpod/*` entries point at a RunPod-hosted vLLM endpoint (vLLM is an OpenAI-compatible model server) — a middle option, in cost and capability, between the local broker and the cloud frontier APIs, for running large open-weight models on demand. To use it, set the endpoint ID in `config.yaml` and `RUNPOD_API_KEY` in the env file.
