@@ -82,7 +82,7 @@ This upgrades the `litellm` package, syncs `config.yaml`, and restarts the servi
 Any service that speaks the OpenAI-compatible API format can call the gateway directly:
 
 ```
-OPENAI_API_BASE=http://10.0.0.243:4000
+OPENAI_API_BASE=http://<gateway-host>:4000
 OPENAI_API_KEY=<LITELLM_MASTER_KEY>
 ```
 
@@ -92,7 +92,7 @@ Or with the Python SDK:
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://10.0.0.243:4000",
+    base_url="http://<gateway-host>:4000",
     api_key="sk-litellm-...",
 )
 
@@ -117,7 +117,7 @@ Model names are whatever you define in `config.yaml`. The gateway translates eac
 This is a long-lived daemon already listening on `:4000`, so it exposes metrics through its own `/metrics` endpoint rather than through the node-exporter textfile collector (that collector is meant for one-shot systemd units that have nothing listening at scrape time — see home-infra's `CONVENTIONS.md` §18). Metrics are turned on with `litellm_settings.callbacks: [prometheus]` in `config.yaml`, backed by the `prometheus_client` pip package, which `scripts/install.sh` and `scripts/update.sh` install automatically.
 
 ```bash
-curl -sH "Authorization: Bearer $LITELLM_MASTER_KEY" http://10.0.0.243:4000/metrics
+curl -sH "Authorization: Bearer $LITELLM_MASTER_KEY" http://<gateway-host>:4000/metrics
 ```
 
 `/metrics` sits behind the same master-key check as every other route (as of litellm 1.85+, `require_auth_for_metrics_endpoint` defaults to `true`). A Prometheus scrape job needs to send that same header, like any other caller. The scrape job itself lives in the `home-infra` repo, not this one.
