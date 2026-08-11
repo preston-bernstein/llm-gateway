@@ -13,4 +13,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: ShellCheck
-        run: shellcheck -S error scripts/*.sh
+        run: shellcheck scripts/*.sh
+
+  yaml-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate config YAML
+        run: |
+          pip install --quiet pyyaml
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('config/*.yaml')]"

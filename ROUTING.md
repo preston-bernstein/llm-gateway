@@ -6,7 +6,7 @@ FrugalGPT is a cost-saving routing strategy from a research paper: try a cheap m
 |---|---|---|
 | **LOCAL** | `ollama/interactive/qwen2.5`, `ollama/batch/*` | Free, private, runs on our own hardware. For bulk or simple work: classification, extraction, embeddings. |
 | **FAST** | `gemini-2.5-flash` | Cheap, fast cloud model — the first cloud tier to try after LOCAL. |
-| **MID** | `claude-sonnet-4-6`, `runpod/qwen2.5-72b` | Strong reasoning at moderate cost. |
+| **MID** | `claude-sonnet-4-6`, (`runpod/qwen2.5-72b` — template only, **not active**) | Strong reasoning at moderate cost. |
 | **FRONTIER** | `claude-opus-4-8`, `gemini-2.5-pro` | Highest accuracy — for hard reasoning or judgment calls. |
 
 ## FrugalGPT principle: accuracy first, cost second

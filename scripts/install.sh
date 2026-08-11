@@ -17,9 +17,11 @@ log()   { printf '{"schema_version":1,"ts":"%s","level":"%s","service":"llm-gate
               "$(date -u +%FT%TZ)" "$1" "$2" "${3//\"/\\\"}"; }
 info()  { log info "$1" "$2"; }
 die()   { log critical "$1" "$2" >&2; exit 1; }
+trap 'log critical script.failed "unexpected failure at line $LINENO: $BASH_COMMAND"' ERR
 
 [[ $EUID -eq 0 ]] || die preflight.failed "must run as root"
 command -v python3 >/dev/null || die preflight.failed "python3 not found"
+command -v openssl >/dev/null || die preflight.failed "openssl not found"
 
 # ── Service user ──────────────────────────────────────────────────────────────
 if ! id "$SERVICE_USER" &>/dev/null; then
@@ -30,8 +32,10 @@ else
 fi
 
 # ── Directories ───────────────────────────────────────────────────────────────
-mkdir -p /opt/litellm "$CONFIG_DIR" "$DATA_DIR"
-chown "$SERVICE_USER:$SERVICE_USER" /opt/litellm "$DATA_DIR"
+# $DATA_DIR is created and owned by `useradd -m` above (and later by
+# StateDirectory=litellm on every service start) — not re-created here.
+mkdir -p /opt/litellm "$CONFIG_DIR"
+chown "$SERVICE_USER:$SERVICE_USER" /opt/litellm
 chown root:"$SERVICE_USER" "$CONFIG_DIR"
 chmod 750 "$CONFIG_DIR"   # litellm group can traverse; root:root locked
 
@@ -43,8 +47,11 @@ sudo -u "$SERVICE_USER" "$VENV/bin/pip" install --quiet --upgrade pip
 # prometheus_client backs litellm_settings.callbacks: [prometheus] in
 # config.yaml — the native /metrics endpoint (home-infra CONVENTIONS.md §18).
 sudo -u "$SERVICE_USER" "$VENV/bin/pip" install --quiet 'litellm[proxy]' prometheus_client
-LITELLM_VERSION=$("$VENV/bin/litellm" --version 2>/dev/null || echo "unknown")
-info litellm.installed "installed litellm $LITELLM_VERSION"
+if LITELLM_VERSION=$("$VENV/bin/litellm" --version 2>&1); then
+    info litellm.installed "installed litellm $LITELLM_VERSION"
+else
+    log critical litellm.version_check_failed "litellm --version failed after install: ${LITELLM_VERSION//\"/\\\"}"
+fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,6 +72,7 @@ if [[ ! -f "$CONFIG_DIR/litellm.env" ]]; then
 LITELLM_MASTER_KEY=$MASTER_KEY
 GEMINI_API_KEY=
 ANTHROPIC_API_KEY=
+RUNPOD_API_KEY=
 EOF
     chmod 600 "$CONFIG_DIR/litellm.env"
     # Never echo the key value itself — point at where to read it instead.
@@ -72,7 +80,7 @@ EOF
     # LITELLM_MASTER_KEY to stdout, persisting it into any tee'd install log
     # or terminal scrollback.)
     info secrets.generated "generated $CONFIG_DIR/litellm.env — read the master key with: sudo grep '^LITELLM_MASTER_KEY=' $CONFIG_DIR/litellm.env"
-    info secrets.incomplete "fill in GEMINI_API_KEY and ANTHROPIC_API_KEY before starting"
+    info secrets.incomplete "fill in GEMINI_API_KEY, ANTHROPIC_API_KEY, and RUNPOD_API_KEY before starting"
 else
     info secrets.exists "litellm.env already exists — not overwriting"
 fi
@@ -83,13 +91,14 @@ systemctl daemon-reload
 systemctl enable litellm.service
 info service.installed "service installed and enabled"
 
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+IP="${IP:-<this machine LAN IP>}"
+
 echo ""
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│  LiteLLM proxy installed on port $PORT                        │"
-echo "│                                                             │"
-echo "│  1. Add your API keys to $CONFIG_DIR/litellm.env      │"
-echo "│  2. sudo systemctl start litellm                           │"
-echo "│  3. sudo systemctl status litellm                          │"
-echo "│                                                             │"
-echo "│  Endpoint: http://$(hostname -I | awk '{print $1}'):$PORT                  │"
-echo "└─────────────────────────────────────────────────────────────┘"
+echo "LiteLLM proxy installed on port $PORT"
+echo ""
+echo "  1. Add your API keys to $CONFIG_DIR/litellm.env"
+echo "  2. sudo systemctl start litellm"
+echo "  3. sudo systemctl status litellm"
+echo ""
+echo "  Endpoint: http://$IP:$PORT"

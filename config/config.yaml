@@ -26,6 +26,8 @@ model_list:
       model: gemini/gemini-embedding-001
       api_key: os.environ/GEMINI_API_KEY
 
+  # ── RunPod (serverless vLLM) — active deployments ──────────────────────────
+  # See config.example.yaml for the commented-out template to add another one.
   - model_name: runpod-qwen32b
     litellm_params:
       model: openai/Qwen/Qwen2.5-32B-Instruct-AWQ
@@ -90,16 +92,6 @@ model_list:
       model: openai/claude-fable-5
       api_base: http://localhost:4002/v1
       api_key: "none"
-
-  # ── RunPod (serverless vLLM) — NOT ACTIVE: template only ──────────────────
-  # Uncomment + fill once you deploy a serverless endpoint AND set RUNPOD_API_KEY.
-  # Big open-weights (Llama/Qwen/DeepSeek) on-demand — a mid tier between the
-  # local broker and the frontier APIs.
-  # - model_name: runpod/qwen2.5-72b
-  #   litellm_params:
-  #     model: openai/qwen2.5-72b-instruct
-  #     api_base: https://api.runpod.ai/v2/RUNPOD_ENDPOINT_ID/openai/v1
-  #     api_key: os.environ/RUNPOD_API_KEY
 
   # ── Local Ollama (via resource broker) ────────────────────────────────────
   # Interactive port — journal generation, chat, long-running prompts.
@@ -179,21 +171,8 @@ litellm_settings:
   # scripts/update.sh install it alongside litellm[proxy]).
   #
   # Metric -> fleet-contract requirement mapping (verified names, 2026-08-01):
-  #   requests by model + outcome  -> litellm_proxy_total_requests_metric
-  #                                    (labels: requested_model, status_code)
-  #   fallback/degradation events  -> litellm_deployment_successful_fallbacks /
-  #                                    litellm_deployment_failed_fallbacks
-  #                                    (labels: requested_model, fallback_model)
-  #                                    — THIS is the qwen72b->gemini-2.5-flash
-  #                                    degradation signal from commit c6c31a4,
-  #                                    finally visible as a counter instead of
-  #                                    an HTTP 200 nobody inspects.
-  #   deployment cooldowns         -> litellm_deployment_cooled_down
-  #   latency                      -> litellm_request_total_latency_metric,
-  #                                    litellm_llm_api_latency_metric
-  #   tokens                       -> litellm_input_tokens_metric,
-  #                                    litellm_output_tokens_metric
-  #   spend/cost per model         -> litellm_spend_metric
+  # see the Observability section of README.md for the full table — kept in
+  # one place so a future litellm upgrade only needs updating there, not here.
   # /metrics inherits the same master-key auth as every other route
   # (require_auth_for_metrics_endpoint defaults to true as of litellm 1.85+) —
   # a Prometheus scrape job needs an Authorization: Bearer <master key> header,

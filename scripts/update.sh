@@ -14,6 +14,7 @@ log()  { printf '{"schema_version":1,"ts":"%s","level":"%s","service":"llm-gatew
              "$(date -u +%FT%TZ)" "$1" "$2" "${3//\"/\\\"}"; }
 info() { log info "$1" "$2"; }
 die()  { log critical "$1" "$2" >&2; exit 1; }
+trap 'log critical script.failed "unexpected failure at line $LINENO: $BASH_COMMAND"' ERR
 
 [[ $EUID -eq 0 ]] || die preflight.failed "must run as root"
 
@@ -21,6 +22,8 @@ info litellm.upgrade.started "upgrading litellm..."
 # prometheus_client backs litellm_settings.callbacks: [prometheus] — keep it
 # installed on every update, not just a fresh install.
 sudo -u litellm "$VENV/bin/pip" install --quiet --upgrade 'litellm[proxy]' prometheus_client
+LITELLM_VERSION=$("$VENV/bin/litellm" --version 2>/dev/null || echo "unknown")
+info litellm.upgrade.completed "upgraded to litellm $LITELLM_VERSION"
 
 info config.sync.started "syncing config..."
 cp "$REPO_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml"
@@ -37,7 +40,9 @@ systemctl restart litellm.service
 # config cycles in `activating (auto-restart)` forever and never reaches
 # systemd's `failed` state (2026-08-01 fleet audit gap — this is Incident 1's
 # failure shape exactly). Poll the health endpoint instead and fail loudly if
-# it never comes up within the RunPod-safe window.
+# it never comes up within a generous window for litellm's own startup time
+# (venv activation + provider client init), not related to RunPod at all —
+# this polls the local proxy's own liveliness endpoint.
 elapsed=0
 until curl -fsS -m 2 "$HEALTH_URL" >/dev/null 2>&1; do
     if [[ "$elapsed" -ge "$HEALTH_TIMEOUT_S" ]]; then
