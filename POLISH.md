@@ -156,17 +156,44 @@ everything and deploy:
   than flagging it explicitly.
 - **Post-upgrade metric-name drift risk.** `scripts/update.sh` now curls
   `/metrics` (with the master key read locally from `litellm.env`, never
-  echoed) after a successful restart and greps for the four key series
-  names README documents. Missing series log a `critical` JSON event
-  naming exactly what's missing, without failing the deploy outright —
-  the service can be genuinely healthy and serving traffic while a
-  metric name has drifted, so this is a loud warning, not a hard gate.
-  Litellm/`prometheus_client` remain intentionally unpinned; this check
-  is the safety net instead of a version pin.
+  echoed) after a successful restart, as a safety net instead of pinning
+  litellm's version. The check went through two live-discovered bugs
+  before it was actually correct — see below.
 
 Everything above was validated with `shellcheck`, `bash -n`, and a YAML
-parse before commit. See "Deploy" below for the live rollout and
-post-deploy verification.
+parse before commit. See "Deploy" below for the live rollout, and the two
+bugs the deploy itself caught in the new metrics check.
+
+### The metrics check's first two versions were both wrong
+
+The first deploy of the new post-restart `/metrics` check (see above) fired
+`critical` twice, for two different reasons — both root-caused and fixed
+before this pass finished, not left as follow-ups:
+
+1. **Redirect not followed.** LiteLLM's `/metrics` (no trailing slash)
+   returns an HTTP `307` to `/metrics/`. The check used `curl -fsS` without
+   `-L`, so it silently got an empty redirect body instead of the real
+   metrics — a curl-flag bug, fixed by adding `-L`.
+2. **Wrong assumption about what "present" means.** The four series names
+   the check originally looked for
+   (`litellm_proxy_total_requests_metric`, `litellm_deployment_successful_fallbacks`,
+   `litellm_deployment_cooled_down`, `litellm_spend_metric`) are all
+   Prometheus counters scoped to specific request/fallback/cooldown labels
+   — the client library doesn't emit a labeled series until that exact
+   label combination has actually occurred at least once. Immediately
+   after a fresh restart with zero traffic, all four are legitimately
+   absent — not broken, just never triggered yet. The original check would
+   have logged a false "critical" on *every single deploy*, which is worse
+   than no check at all (alert fatigue trains an operator to ignore it).
+   Confirmed live: right after restart, `/metrics` only exported
+   unlabeled gauges (`litellm_active_users`, `litellm_in_flight_requests`,
+   etc.) — none of the four target counters, despite nothing being wrong.
+   Fixed by redesigning the check to a shallower, reliable one: confirm
+   `/metrics` is reachable and exports *some* `litellm_`-prefixed series
+   at all (catches the callback breaking entirely — auth change,
+   dependency removed, exposition format changed) rather than asserting
+   on event-driven data that doesn't exist yet. Verified passing against
+   the live instance before the final commit.
 
 ## Original escalation reasoning (superseded above)
 

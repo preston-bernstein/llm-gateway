@@ -56,26 +56,29 @@ done
 info service.restart.completed "litellm healthy after restart (${elapsed}s)"
 
 # litellm/vLLM version is unpinned above, but the whole Observability section
-# (README.md) depends on specific Prometheus series names that were only
-# doc-verified against one specific version. Liveliness alone can't catch an
-# upstream metric rename — check the series names actually still exist so
-# drift is visible in this log instead of silently breaking dashboards/alerts.
+# (README.md) depends on the Prometheus integration staying wired up the way
+# it was doc-verified. Liveliness alone can't catch that breaking. This is
+# deliberately a *shallow* check, not a check for README's specific series
+# names: litellm_proxy_total_requests_metric, litellm_deployment_*_fallbacks,
+# litellm_deployment_cooled_down, and litellm_spend_metric are all
+# event-labeled Prometheus counters that don't exist in the exposition output
+# until a matching request/fallback/cooldown actually happens — checking for
+# their unconditional presence right after a fresh restart with zero traffic
+# false-positives every single time (found live, 2026-08-11: this exact
+# check fired "missing" on all four on first deploy with none of them
+# actually broken). Instead just confirm the endpoint is reachable and still
+# exporting *some* litellm_ series — enough to catch the callback breaking
+# entirely (auth change, dependency removed, exposition format changed)
+# without asserting on data that legitimately doesn't exist yet.
 # Never echo the master key itself — read it straight into the curl header.
 MASTER_KEY="$(grep -m1 '^LITELLM_MASTER_KEY=' "$CONFIG_DIR/litellm.env" | cut -d= -f2-)"
-REQUIRED_METRICS=(litellm_proxy_total_requests_metric litellm_deployment_successful_fallbacks litellm_deployment_cooled_down litellm_spend_metric)
-METRICS_BODY="$(curl -fsS -m 5 -H "Authorization: Bearer $MASTER_KEY" http://127.0.0.1:4000/metrics 2>/dev/null || true)"
+METRICS_BODY="$(curl -fsSL -m 5 -H "Authorization: Bearer $MASTER_KEY" http://127.0.0.1:4000/metrics 2>/dev/null || true)"
 if [[ -z "$METRICS_BODY" ]]; then
-    log critical metrics.check_failed "could not fetch /metrics after restart — cannot confirm the Prometheus series names README documents are still exported"
+    log critical metrics.check_failed "could not fetch /metrics after restart — cannot confirm the Prometheus integration is still working"
+elif ! grep -q '^litellm_' <<< "$METRICS_BODY"; then
+    log critical metrics.wiring_broken "litellm upgrade to $LITELLM_VERSION may have broken the prometheus callback — /metrics responded but exported no litellm_ series"
 else
-    MISSING=()
-    for metric in "${REQUIRED_METRICS[@]}"; do
-        grep -q "^${metric}" <<< "$METRICS_BODY" || MISSING+=("$metric")
-    done
-    if [[ ${#MISSING[@]} -gt 0 ]]; then
-        log critical metrics.series_missing "litellm upgrade to $LITELLM_VERSION may have renamed metrics — missing from /metrics: ${MISSING[*]} — check upstream changelog and update README.md's mapping"
-    else
-        info metrics.check_passed "all documented Prometheus series names present after upgrade"
-    fi
+    info metrics.check_passed "/metrics reachable and exporting litellm_ series after upgrade"
 fi
 
 systemctl status litellm.service --no-pager | head -10
