@@ -71,8 +71,10 @@ if [[ ! -f "$CONFIG_DIR/litellm.env" ]]; then
 # LiteLLM API keys — chmod 600, never commit this file.
 LITELLM_MASTER_KEY=$MASTER_KEY
 GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
 RUNPOD_API_KEY=
+# ANTHROPIC_API_KEY=  # only needed if config.yaml's claude-* entries are
+# switched away from the local claude-cli-server shim to the real API —
+# see README.md's Requirements/Installation sections.
 EOF
     chmod 600 "$CONFIG_DIR/litellm.env"
     # Never echo the key value itself — point at where to read it instead.
@@ -80,7 +82,7 @@ EOF
     # LITELLM_MASTER_KEY to stdout, persisting it into any tee'd install log
     # or terminal scrollback.)
     info secrets.generated "generated $CONFIG_DIR/litellm.env — read the master key with: sudo grep '^LITELLM_MASTER_KEY=' $CONFIG_DIR/litellm.env"
-    info secrets.incomplete "fill in GEMINI_API_KEY, ANTHROPIC_API_KEY, and RUNPOD_API_KEY before starting"
+    info secrets.incomplete "fill in GEMINI_API_KEY and RUNPOD_API_KEY before starting (ANTHROPIC_API_KEY only needed if you switch claude-* off the local shim — see README)"
 else
     info secrets.exists "litellm.env already exists — not overwriting"
 fi

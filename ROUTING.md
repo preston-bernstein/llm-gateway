@@ -4,10 +4,14 @@ FrugalGPT is a cost-saving routing strategy from a research paper: try a cheap m
 
 | Tier | Gateway model_name | Use |
 |---|---|---|
-| **LOCAL** | `ollama/interactive/qwen2.5`, `ollama/batch/*` | Free, private, runs on our own hardware. For bulk or simple work: classification, extraction, embeddings. |
-| **FAST** | `gemini-2.5-flash` | Cheap, fast cloud model — the first cloud tier to try after LOCAL. |
-| **MID** | `claude-sonnet-4-6`, (`runpod/qwen2.5-72b` — template only, **not active**) | Strong reasoning at moderate cost. |
+| **LOCAL** | `ollama/interactive/qwen2.5`, `ollama/batch/*`, `ollama/cpu/*` | Free, private, runs on our own hardware. For bulk or simple work: classification, extraction, embeddings. |
+| **FAST** | `gemini-2.5-flash`, `claude-haiku-4-5` | Cheap, fast cloud model — the first cloud tier to try after LOCAL. |
+| **MID** | `claude-sonnet-4-6`, `runpod-qwen32b`, (`runpod/qwen2.5-72b` — template only, **not active**) | Strong reasoning at moderate cost. |
 | **FRONTIER** | `claude-opus-4-8`, `gemini-2.5-pro` | Highest accuracy — for hard reasoning or judgment calls. |
+
+Two other active models sit outside this tier contract because they aren't general-purpose reasoning models: `gemini-embed` (embeddings, not chat) and `ollama/batch/qwen3-vl:30b` (vision classification). Call them directly by name for that specific purpose rather than through a cascade.
+
+`qwen72b` and `claude-fable-5` are also active in `config.yaml` but deliberately not assigned a tier here. `qwen72b` is a dedicated extraction backend for `algo-corpus` (its own fallback/retry tuning, see the comment in `config.yaml`) rather than a general-purpose route — call it by name if you're specifically replacing that pipeline's backend. `claude-fable-5`'s intended role in this tier contract hasn't been decided yet — ask before routing new traffic to it.
 
 ## FrugalGPT principle: accuracy first, cost second
 
@@ -25,4 +29,4 @@ The gateway exports every call (tier, tokens, latency, cost) as Prometheus metri
 
 ## RunPod
 
-RunPod is a serverless GPU hosting service. The `runpod/*` entries point at a RunPod-hosted vLLM endpoint — a middle option, in cost and capability, between the local broker and the cloud frontier APIs, for running large open-weight models on demand. To use it, set the endpoint ID in `config.yaml` and `RUNPOD_API_KEY` in the env file.
+RunPod is a serverless GPU hosting service. `runpod-qwen32b` and `qwen72b` point at RunPod-hosted vLLM endpoints — a middle option, in cost and capability, between the local broker and the cloud frontier APIs, for running large open-weight models on demand. To add another one, uncomment and fill in the template block in `config/config.example.yaml`, and set `RUNPOD_API_KEY` in the env file.

@@ -121,7 +121,54 @@ structural YAML diff, and specifically stress-tested the new ERR-trap
 semantics and the `$DATA_DIR` removal in isolated bash reproductions. No
 correctness bugs found.
 
-## Escalated (not applied — needs Preston's decision)
+## Escalated items — resolved 2026-08-11 (follow-up pass)
+
+All four items below were escalated in the initial pass rather than
+auto-applied, then resolved in a follow-up after explicit direction to fix
+everything and deploy:
+
+- **README.md's "Anthropic API" framing.** Preston chose to rewrite it
+  accurately: README's architecture diagram, intro, Requirements,
+  Installation, and Usage sections now describe the real
+  `claude-cli-server` (`localhost:4002`) subscription shim instead of a
+  direct Anthropic API. `install.sh`'s generated `litellm.env` no longer
+  presents `ANTHROPIC_API_KEY` as required — it's now a commented-out,
+  clearly-labeled optional line for anyone who switches `config.yaml`'s
+  `claude-*` entries away from the shim (`config/config.example.yaml`
+  still documents that direct-API path). `claude-cli-server` itself is
+  out of scope for this repo — README now names it as a hard runtime
+  dependency without fabricating its own setup instructions, since this
+  repo doesn't own that service.
+- **`config/config.yaml:126` `ollama/cpu/bge-m3`** now points at
+  `http://127.0.0.1:11436` (the broker's batch port, matching its sibling
+  GPU `ollama/batch/bge-m3` embedding entry) instead of raw Ollama
+  `:11434`, with a comment citing the house rule it was violating.
+- **ROUTING.md's tier table** now includes `claude-haiku-4-5` (FAST) and
+  `runpod-qwen32b` (MID) — both cleanly fit the existing tiers. `gemini-embed`
+  and `ollama/batch/qwen3-vl:30b` are documented in a new note as
+  special-purpose (embeddings/vision, not general reasoning) rather than
+  forced into a tier. `qwen72b` and `claude-fable-5` are explicitly called
+  out as active-but-unassigned — `qwen72b` because the household's own
+  internal reference deliberately treats it as a dedicated
+  `algo-corpus`-extraction backend, not a general route; `claude-fable-5`
+  because its intended tier genuinely isn't decided yet and guessing
+  wrong in a document other services treat as a contract seemed worse
+  than flagging it explicitly.
+- **Post-upgrade metric-name drift risk.** `scripts/update.sh` now curls
+  `/metrics` (with the master key read locally from `litellm.env`, never
+  echoed) after a successful restart and greps for the four key series
+  names README documents. Missing series log a `critical` JSON event
+  naming exactly what's missing, without failing the deploy outright —
+  the service can be genuinely healthy and serving traffic while a
+  metric name has drifted, so this is a loud warning, not a hard gate.
+  Litellm/`prometheus_client` remain intentionally unpinned; this check
+  is the safety net instead of a version pin.
+
+Everything above was validated with `shellcheck`, `bash -n`, and a YAML
+parse before commit. See "Deploy" below for the live rollout and
+post-deploy verification.
+
+## Original escalation reasoning (superseded above)
 
 - **README.md's "Anthropic API" framing.** Since commit `c6c31a4`, every
   `claude-*` model actually routes through a local `claude-cli-server`

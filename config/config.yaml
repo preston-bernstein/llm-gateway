@@ -123,10 +123,14 @@ model_list:
       api_base: http://127.0.0.1:11436
     model_info:
       mode: embedding
+  # CPU-only embedding variant — still routed through the broker's batch
+  # port, never raw Ollama :11434 (house rule: the GPU is shared with
+  # gaming/Plex and the broker is the only arbiter — see
+  # .claude/skills/llm-gateway-change-control non-negotiables).
   - model_name: ollama/cpu/bge-m3
     litellm_params:
       model: ollama/bge-m3-cpu
-      api_base: http://127.0.0.1:11434
+      api_base: http://127.0.0.1:11436
     model_info:
       mode: embedding
 

@@ -2,7 +2,7 @@
 
 llm-gateway is a self-hosted proxy built on [LiteLLM](https://github.com/BerriAI/litellm), running as a hardened systemd service on a Linux machine.
 
-It gives your services one OpenAI-compatible endpoint in front of the Gemini API, the Anthropic API, and local Ollama models. That gets you:
+It gives your services one OpenAI-compatible endpoint in front of the Gemini API, Claude (via a local subscription-based CLI shim, not the billed Anthropic API — see Architecture below), and local Ollama models. That gets you:
 
 - **One endpoint** every service calls, instead of each service wiring up its own provider.
 - **One place for API keys** — services never hold a provider credential themselves.
@@ -14,24 +14,28 @@ It gives your services one OpenAI-compatible endpoint in front of the Gemini API
                         ┌─────────────────────────────┐
                         │        llm-gateway          │
   services  ──────────▶│   LiteLLM proxy :4000       │──▶  Gemini API
-  (OpenAI format)       │   /etc/litellm/config.yaml  │──▶  Anthropic API
-                        │   /etc/litellm/litellm.env  │──▶  Ollama (local, :11435/:11436)
+  (OpenAI format)       │   /etc/litellm/config.yaml  │──▶  claude-cli-server :4002 (Claude subscription)
+                        │   /etc/litellm/litellm.env  │──▶  Ollama (local, via broker :11435/:11436)
                         └─────────────────────────────┘
 ```
+
+**Claude models run through a subscription shim, not the API.** The `claude-*` entries in `config.yaml` route to `claude-cli-server` (`http://localhost:4002`), a separate local service that wraps the `claude` CLI (`claude -p --dangerously-skip-permissions`) and authenticates with an existing Claude subscription instead of billed API usage. It's a hard runtime dependency for every `claude-*` model — if it isn't running, those requests fail even though the gateway itself is healthy. `config/config.example.yaml` shows the alternative for anyone without this shim set up: point `claude-*` entries directly at the real Anthropic API with `ANTHROPIC_API_KEY`.
 
 **Why use a proxy instead of calling each provider's API directly?**
 
 - **Key management**: API keys live in one env file, `/etc/litellm/litellm.env`. Services carry no credentials of their own — they call `localhost` with an internal master key instead.
 - **Visibility**: every request — its outcome, latency, tokens, and spend — is exported as Prometheus metrics (see Observability below). That gives you one shared place to query, instead of grepping through a proxy's log by hand.
 - **Provider abstraction**: to swap Gemini Flash for a better model, change the model alias in `config.yaml` and restart — no service code changes needed.
-- **FrugalGPT cascade compatibility**: FrugalGPT is a cost-saving strategy — try a cheap model first, and escalate to a pricier one only if it fails a quality check. Services implement that escalation logic tier by tier; the gateway routes each tier's call to the right backend, including differences in how providers expect requests authenticated (Anthropic's native format vs. OpenAI-compatible).
+- **FrugalGPT cascade compatibility**: FrugalGPT is a cost-saving strategy — try a cheap model first, and escalate to a pricier one only if it fails a quality check. Services implement that escalation logic tier by tier; the gateway routes each tier's call to the right backend, whatever protocol or endpoint that backend actually needs — Gemini's native format, the local Claude shim, or Ollama's own API.
 
 ## Requirements
 
 - Linux with systemd
 - Python 3.10+
-- `openssl` (for master key generation in install script)
+- `openssl` (master key generation in install script)
+- `curl` (health check in update script)
 - Root access to install the service
+- For `claude-*` models: `claude-cli-server` running locally on port 4002 (see Architecture above). Not needed if you swap those entries for direct Anthropic API calls instead.
 
 ## Installation
 
@@ -52,8 +56,10 @@ Then add your API keys:
 
 ```bash
 sudo nano /etc/litellm/litellm.env
-# Fill in GEMINI_API_KEY and/or ANTHROPIC_API_KEY
+# Fill in GEMINI_API_KEY and RUNPOD_API_KEY
 ```
+
+`claude-*` models need no key here — they route through `claude-cli-server` (see Architecture above). If you're not running that shim and want the real Anthropic API instead, edit `config.yaml`'s `claude-*` entries to use `anthropic/<model>` + `api_key: os.environ/ANTHROPIC_API_KEY` (see `config/config.example.yaml`) and add `ANTHROPIC_API_KEY=` to `litellm.env` yourself.
 
 Start it:
 
@@ -102,7 +108,7 @@ response = client.chat.completions.create(
 )
 ```
 
-Model names are whatever you define in `config.yaml`. The gateway translates each request into the format its provider expects (Anthropic native auth, Ollama's `/api/generate`, and so on).
+Model names are whatever you define in `config.yaml`. The gateway translates each request into the format its provider expects (the claude-cli-server shim's OpenAI-compatible interface, Ollama's `/api/generate`, and so on).
 
 ## Security
 

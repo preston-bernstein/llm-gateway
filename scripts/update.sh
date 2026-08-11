@@ -54,4 +54,28 @@ until curl -fsS -m 2 "$HEALTH_URL" >/dev/null 2>&1; do
     elapsed=$((elapsed + 2))
 done
 info service.restart.completed "litellm healthy after restart (${elapsed}s)"
+
+# litellm/vLLM version is unpinned above, but the whole Observability section
+# (README.md) depends on specific Prometheus series names that were only
+# doc-verified against one specific version. Liveliness alone can't catch an
+# upstream metric rename — check the series names actually still exist so
+# drift is visible in this log instead of silently breaking dashboards/alerts.
+# Never echo the master key itself — read it straight into the curl header.
+MASTER_KEY="$(grep -m1 '^LITELLM_MASTER_KEY=' "$CONFIG_DIR/litellm.env" | cut -d= -f2-)"
+REQUIRED_METRICS=(litellm_proxy_total_requests_metric litellm_deployment_successful_fallbacks litellm_deployment_cooled_down litellm_spend_metric)
+METRICS_BODY="$(curl -fsS -m 5 -H "Authorization: Bearer $MASTER_KEY" http://127.0.0.1:4000/metrics 2>/dev/null || true)"
+if [[ -z "$METRICS_BODY" ]]; then
+    log critical metrics.check_failed "could not fetch /metrics after restart — cannot confirm the Prometheus series names README documents are still exported"
+else
+    MISSING=()
+    for metric in "${REQUIRED_METRICS[@]}"; do
+        grep -q "^${metric}" <<< "$METRICS_BODY" || MISSING+=("$metric")
+    done
+    if [[ ${#MISSING[@]} -gt 0 ]]; then
+        log critical metrics.series_missing "litellm upgrade to $LITELLM_VERSION may have renamed metrics — missing from /metrics: ${MISSING[*]} — check upstream changelog and update README.md's mapping"
+    else
+        info metrics.check_passed "all documented Prometheus series names present after upgrade"
+    fi
+fi
+
 systemctl status litellm.service --no-pager | head -10
