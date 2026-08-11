@@ -264,3 +264,37 @@ corrected on 2026-08-02 (commit "Add metrics and structured logging..."),
 so the skill library's own claims about those two files are now the
 out-of-date thing, not the docs it's describing. Not fixed here (out of
 scope), just flagged.
+
+## Deploy
+
+Pushed to `origin/main` (`git@github.com:preston-bernstein/llm-gateway.git`)
+across three commits (`f4f16c5`, `01d0e1c`, merge `656de99`), then a
+fourth (`8241231`) fixing two bugs the first live deploy itself
+surfaced in the new metrics check (see above). A concurrent unrelated
+commit landed on GitHub directly during this pass (`42ad749`, redacting
+the LAN IP from README) — reconciled with a merge, no conflicts.
+
+Deployed to the live instance (desktop, `agent@10.0.0.243`,
+`/home/agent/dev/llm-gateway`) via the repo's own documented procedure:
+`git pull --ff-only` + `sudo bash scripts/update.sh`, run twice (once
+before the metrics-check fix, once after, to verify the fix live rather
+than just in review).
+
+**Post-deploy verification:**
+- `systemctl status litellm` — active, healthy, restarted cleanly both times.
+- `update.sh`'s own liveliness poll — passed in 4s both runs.
+- `update.sh`'s new `/metrics` check — failed on the first run (the two
+  bugs above), passed cleanly on the second (`metrics.check_passed`)
+  after the fix was deployed.
+- Deployed `/etc/litellm/config.yaml` spot-checked directly: `ollama/cpu/bge-m3`
+  now has `api_base: http://127.0.0.1:11436` (the broker-port fix landed for
+  real, not just in the repo); the stale commented-out RunPod template
+  block is gone from the live file too.
+- `GET /v1/models` — all 15 expected model IDs present, including the
+  ROUTING.md tier-table additions.
+- Real smoke test: a `gemini-2.5-flash` chat completion through the live
+  gateway returned the expected content end-to-end.
+
+Litellm was upgraded 1.9x → **1.96.0** as a side effect of `update.sh`'s
+normal unpinned-upgrade behavior (unrelated to this pass's changes,
+already the documented behavior of `scripts/update.sh`).
