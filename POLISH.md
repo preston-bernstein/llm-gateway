@@ -1,4 +1,155 @@
-# Codebase polish — 2026-08-11
+# Codebase polish log
+
+This file is a running log, newest pass first. Each pass explains what it
+checked, what it changed, and what it deliberately left alone.
+
+## 2026-08-15
+
+Second polish pass, four days after the first (below). Same method:
+deterministic tooling, three judgment lenses (elegance/architecture/DRY,
+dead-code/duplication, observability), auto-apply, then a regression check.
+
+**Starting state.** `git fetch origin` showed nothing new — this repo's
+`main` was already even with `origin/main`, and matched exactly what the
+2026-08-11 pass deployed. `git status --porcelain` showed one pre-existing
+untracked item, `.claude/` (this repo's own agent-knowledge base, never
+committed — see "Not touched" in the 2026-08-11 section below; still out of
+scope for the same reason). No other uncommitted changes going in.
+
+**Deterministic signal.** Still bash + YAML + docs — no TS/JS, no Python
+source, so `fallow`/`vulture`/`slopo` still don't apply (unchanged from the
+2026-08-11 finding). `shellcheck scripts/*.sh`, `bash -n` on both scripts,
+and a `pyyaml` parse of both config files all passed clean before this
+pass's edits, confirming the 2026-08-11 pass's fixes were still intact and
+nothing had drifted in the four days since.
+
+**Standards brief.** Google eng-practices review standard (health over
+perfectionism); the YAGNI / Fowler "speculative generality" guardrail;
+`config.yaml`, `README.md`, and `ROUTING.md` cross-checked against each
+other for drift (none found — all 15 model IDs, the ROUTING.md tier table,
+and the Observability metric table still agree). Given the previous pass's
+live tooling sweep was only four days old and returned "no relevant tool
+for this repo's language," this pass reused that grounding rather than
+re-running a full external sweep for a one-day-old baseline on an unchanged
+toolchain — noted here so a future pass knows why it wasn't repeated.
+
+### Applied
+
+**Dead code & duplication (DRY lens).** `scripts/install.sh` and
+`scripts/update.sh` each carried an identical `log()`/`info()`/`die()` +
+`trap ... ERR` block — four lines, byte-for-byte the same except one
+hardcoded string (`"service":"llm-gateway-install"` vs.
+`"service":"llm-gateway-update"`). Extracted the shared block into a new
+`scripts/lib.sh`, parameterized on a `SERVICE_NAME` variable the caller
+sets before sourcing it. Both scripts now do:
+
+```bash
+SERVICE_NAME=llm-gateway-install   # or -update
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+```
+
+This isn't request-routing or proxy logic — it's operational tooling run
+by hand (`install.sh`/`update.sh` are never invoked by the live proxy
+itself), so it fell inside the auto-apply bar as a low-risk readability/DRY
+fix. Verified with isolated `bash -c` reproductions (not just read-through)
+that sourcing `lib.sh` produces byte-identical JSON log lines to the old
+inline functions, that `die()` still exits 1 with a `critical` line on
+stderr, and that the `ERR` trap still fires correctly on an unexpected
+failure — see "Regression safety net" below for the exact commands.
+
+**Observability lens.** `scripts/update.sh`'s post-upgrade
+`litellm --version` check silently swallowed a failure:
+`LITELLM_VERSION=$(... 2>/dev/null || echo "unknown")` discarded stderr and
+always logged `litellm.upgrade.completed` at `info` severity, even if the
+version check itself had failed — the exact anti-pattern the 2026-08-11
+pass explicitly found and fixed in `install.sh`'s equivalent check ("this
+line used to silently log 'installed litellm unknown' at the same info
+severity as a healthy install"), but never mirrored into `update.sh`. Fixed
+`update.sh` to match `install.sh`'s already-reviewed pattern: on failure it
+now logs a `critical` `litellm.version_check_failed` event with the
+captured stderr, instead of masking it as a routine `info` line. Verified
+both the success and failure paths with an isolated `bash -c` reproduction
+using stub functions in place of the real `litellm` binary — see below.
+
+**CI.** The `lib.sh` extraction introduced a `source` between the two
+scripts, which `shellcheck` only inspects with `-x` (and, for a dynamically
+built path like `"$(dirname "${BASH_SOURCE[0]}")/lib.sh"`, only resolves
+correctly with the `# shellcheck source=SCRIPTDIR/lib.sh` directive, which
+both scripts now carry). Without `-x`, CI's existing
+`shellcheck scripts/*.sh` step would have started failing on this pass's
+own change — `SERVICE_NAME appears unused` in each script, because
+shellcheck can't see it's consumed inside `lib.sh` without following the
+source. Updated `.github/workflows/ci.yml`'s ShellCheck step to
+`shellcheck -x scripts/*.sh`. Confirmed clean (`shellcheck -x scripts/*.sh`
+exits 0) after the fix, and confirmed the pre-`-x` command *would* have
+failed (exit 1) to make sure this wasn't a no-op change.
+
+### Escalated
+
+None. Everything found this pass was a clear, low-risk operational-tooling
+fix — nothing touched `config.yaml`'s `model_list`, routing, retries,
+timeouts, or any public-facing interface.
+
+### Not touched
+
+- `.claude/` — same reasoning as the 2026-08-11 pass: this repo's own
+  README treats whether this agent-knowledge base is ever pushed to the
+  public remote as Preston's call, not something a polish pass decides.
+  Still untracked, still out of scope.
+- `config/config.yaml`, `config/config.example.yaml`, `README.md`,
+  `ROUTING.md` — read closely and cross-checked against each other and
+  against the live model list; no drift or duplication found since the
+  2026-08-11 pass. Nothing to apply.
+
+### Regression safety net
+
+- `shellcheck -x scripts/*.sh` — clean (this is what CI now runs; the old
+  `shellcheck scripts/*.sh` without `-x` would fail on this pass's own
+  change, see CI note above).
+- `bash -n scripts/install.sh` / `bash -n scripts/update.sh` — clean.
+- `python3 -c "import yaml, ...; yaml.safe_load(...)"` over both config
+  files — clean, unchanged this pass.
+- Isolated `bash -c` reproductions (run against `scripts/lib.sh` directly,
+  not just read-through):
+  - Sourcing `lib.sh` with `SERVICE_NAME` set and calling `info` produces
+    the same JSON shape as the old inline `log()`.
+  - `die` logs a `critical` line to stderr and exits 1.
+  - An unexpected failing command (`false`) still triggers the `ERR` trap
+    and logs `script.failed` with the right line number and command text.
+  - The rewritten `update.sh` version check: stubbing a working
+    `litellm --version` logs `litellm.upgrade.completed` at `info` as
+    before; stubbing a *failing* one now logs a `critical`
+    `litellm.version_check_failed` with the captured error instead of
+    silently defaulting to `"unknown"` at `info` severity.
+- No test suite exists in this repo (it's config + shell + docs, no
+  application code) — these deterministic checks plus the isolated
+  reproductions are the full regression net, consistent with the
+  2026-08-11 pass's approach.
+
+### Deploy
+
+**Not done this pass, deliberately.** Per this pass's own scope, changes
+are committed and pushed to `origin/main` but not rolled out to the live
+instance (desktop, `agent@10.0.0.243`). A deploy would be:
+
+```bash
+ssh desktop-agent
+cd /home/agent/dev/llm-gateway
+git pull --ff-only
+sudo bash scripts/update.sh
+```
+
+That pulls this pass's `lib.sh` extraction and the `update.sh` observability
+fix onto the live host and exercises them for real (a live
+`litellm --version` call, a live service restart, the existing `/metrics`
+post-restart check) — which is exactly the kind of real-traffic exposure
+this pass's brief said to treat as a separate checkpoint rather than bundle
+into an unattended polish run. Recommend running it as its own step, with
+the same post-deploy verification the 2026-08-11 pass used (`systemctl
+status`, the `/metrics` check, a live `GET /v1/models`, one real chat
+completion smoke test).
+
+## 2026-08-11
 
 Automated elegance/DRY/observability pass over this repo. Deterministic
 tooling first, then three parallel LLM lenses (elegance/architecture/DRY,

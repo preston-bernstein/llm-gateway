@@ -10,11 +10,9 @@ HEALTH_URL="http://127.0.0.1:4000/health/liveliness"
 HEALTH_TIMEOUT_S=30
 
 # Structured logging (home-infra CONVENTIONS.md §18 Shell house style).
-log()  { printf '{"schema_version":1,"ts":"%s","level":"%s","service":"llm-gateway-update","event":"%s","msg":"%s"}\n' \
-             "$(date -u +%FT%TZ)" "$1" "$2" "${3//\"/\\\"}"; }
-info() { log info "$1" "$2"; }
-die()  { log critical "$1" "$2" >&2; exit 1; }
-trap 'log critical script.failed "unexpected failure at line $LINENO: $BASH_COMMAND"' ERR
+SERVICE_NAME=llm-gateway-update
+# shellcheck source=SCRIPTDIR/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 [[ $EUID -eq 0 ]] || die preflight.failed "must run as root"
 
@@ -22,8 +20,12 @@ info litellm.upgrade.started "upgrading litellm..."
 # prometheus_client backs litellm_settings.callbacks: [prometheus] — keep it
 # installed on every update, not just a fresh install.
 sudo -u litellm "$VENV/bin/pip" install --quiet --upgrade 'litellm[proxy]' prometheus_client
-LITELLM_VERSION=$("$VENV/bin/litellm" --version 2>/dev/null || echo "unknown")
-info litellm.upgrade.completed "upgraded to litellm $LITELLM_VERSION"
+if LITELLM_VERSION=$("$VENV/bin/litellm" --version 2>&1); then
+    info litellm.upgrade.completed "upgraded to litellm $LITELLM_VERSION"
+else
+    log critical litellm.version_check_failed "litellm --version failed after upgrade: ${LITELLM_VERSION//\"/\\\"}"
+    LITELLM_VERSION=unknown
+fi
 
 info config.sync.started "syncing config..."
 cp "$REPO_DIR/config/config.yaml" "$CONFIG_DIR/config.yaml"

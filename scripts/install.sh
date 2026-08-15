@@ -13,11 +13,9 @@ PORT=4000
 # Kept to install-time state changes worth having a record of; the final
 # "what to do next" banner at the bottom stays plain stdout — that's
 # operator UX text for whoever ran this interactively, not a log event.
-log()   { printf '{"schema_version":1,"ts":"%s","level":"%s","service":"llm-gateway-install","event":"%s","msg":"%s"}\n' \
-              "$(date -u +%FT%TZ)" "$1" "$2" "${3//\"/\\\"}"; }
-info()  { log info "$1" "$2"; }
-die()   { log critical "$1" "$2" >&2; exit 1; }
-trap 'log critical script.failed "unexpected failure at line $LINENO: $BASH_COMMAND"' ERR
+SERVICE_NAME=llm-gateway-install
+# shellcheck source=SCRIPTDIR/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 [[ $EUID -eq 0 ]] || die preflight.failed "must run as root"
 command -v python3 >/dev/null || die preflight.failed "python3 not found"
